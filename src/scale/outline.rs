@@ -191,12 +191,59 @@ impl<'a> LayerMut<'a> {
         }
     }
 
+    pub fn compute_winding_robust(&self) -> u8 {
+        let mut pos = 0;
+        let mut area = 0.0;
+        let mut prev: Point = Point::default();
+        let mut start_point: Point = Point::default();
+        let mut initialized = false;
+        for verb in self.verbs {
+            match verb {
+                Verb::MoveTo => {
+                    if let Some(points) = self.points.get(pos) {
+                        prev = *points;
+                    }
+                    pos += 1;
+                }
+                Verb::Close => {
+                    initialized = false;
+                    if prev != start_point {
+                        area += (start_point.y - prev.y) * (start_point.x + prev.x);
+                    }
+                }
+                Verb::LineTo | Verb::QuadTo | Verb::CurveTo => {
+                    let bias = match verb {
+                        Verb::CurveTo => 1,
+                        Verb::QuadTo => 2,
+                        _ => 0,
+                    };
+                    if !initialized {
+                        initialized = true;
+                        start_point = prev;
+                    }
+                    if let Some(points) = self.points.get(pos + bias) {
+                        let cur = *points;
+                        area += (cur.y - prev.y) * (cur.x + prev.x);
+                        prev = cur;
+                    }
+                    pos += bias + 1;
+                }
+            }
+        }
+        if area > 0.0 {
+            1
+        } else {
+            0
+        }
+    }
+
     /// Applies a faux bold to this layer with the specified strengths in the
     /// x and y directions.
     pub fn embolden(&mut self, x_strength: f32, y_strength: f32) {
         let mut point_start = 0;
         let mut pos = 0;
-        let winding = compute_winding(self.points);
+        let winding = self.compute_winding_robust();
+
         for verb in self.verbs {
             match verb {
                 Verb::MoveTo | Verb::Close => {
